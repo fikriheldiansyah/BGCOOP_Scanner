@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Scan QR - BG COOP</title>
+<script src="https://unpkg.com/html5-qrcode"></script>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: Arial, Helvetica, sans-serif;
+    background: #0f172a;
+    color: #fff;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 18px;
+  }
+  .brand-mark {
+    width: 36px; height: 36px; border-radius: 10px;
+    background: #00843d; display: flex; align-items: center; justify-content: center;
+    font-weight: 800; font-size: 15px;
+  }
+  .brand-name { font-weight: 800; font-size: 16px; }
+  #reader {
+    width: 100%;
+    max-width: 420px;
+    border-radius: 16px;
+    overflow: hidden;
+    border: 2px solid #00843d;
+  }
+  .status {
+    margin-top: 16px;
+    font-size: 14px;
+    color: #cbd5e1;
+    text-align: center;
+    max-width: 420px;
+  }
+  .error {
+    margin-top: 16px;
+    padding: 12px 16px;
+    background: #7f1d1d;
+    border-radius: 10px;
+    font-size: 13px;
+    max-width: 420px;
+    text-align: center;
+    display: none;
+  }
+  .actions {
+    margin-top: 20px;
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  button {
+    background: #1e293b;
+    color: #fff;
+    border: 1px solid #334155;
+    padding: 10px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  button:hover { background: #334155; }
+  .manual {
+    margin-top: 20px;
+    width: 100%;
+    max-width: 420px;
+  }
+  .manual input {
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid #334155;
+    background: #1e293b;
+    color: #fff;
+    font-size: 13px;
+    margin-bottom: 8px;
+  }
+  .manual button {
+    width: 100%;
+    background: #00843d;
+    border: none;
+    padding: 12px;
+    font-weight: 700;
+  }
+</style>
+</head>
+<body>
+
+  <div class="brand">
+    <div class="brand-mark">BG</div>
+    <div class="brand-name">BG COOP &mdash; Scan QR Invoice</div>
+  </div>
+
+  <div id="reader"></div>
+
+  <div class="status" id="statusText">Meminta izin kamera...</div>
+  <div class="error" id="errorBox"></div>
+
+  <div class="actions">
+    <button onclick="switchCamera()">🔄 Ganti Kamera</button>
+    <button onclick="window.close()">✕ Tutup</button>
+  </div>
+
+  <div class="manual">
+    <input type="text" id="manualToken" placeholder="Atau masukkan token invoice manual">
+    <button onclick="submitManual()">Gunakan Token Ini</button>
+  </div>
+
+<script>
+  var params = new URLSearchParams(window.location.search);
+  var returnUrl = params.get('return') || '';
+  var target = params.get('target') || '';
+  var cameras = [];
+  var camIndex = 0;
+  var scanner = null;
+  var done = false;
+
+  function showError(msg) {
+    var box = document.getElementById('errorBox');
+    box.textContent = msg;
+    box.style.display = 'block';
+  }
+
+  function goBack(decodedText) {
+    if (done) return;
+    done = true;
+    document.getElementById('statusText').textContent = 'QR terbaca. Mengalihkan kembali...';
+    if (scanner) { scanner.stop().catch(function(){}); }
+    if (!returnUrl) {
+      alert('Token: ' + decodedText + '\n\nHalaman ini dibuka tanpa parameter "return", jadi tidak bisa kembali otomatis. Salin token ini secara manual.');
+      return;
+    }
+    var sep = returnUrl.indexOf('?') === -1 ? '?' : '&';
+    window.location.href = returnUrl + sep + 'scannedToken=' + encodeURIComponent(decodedText) + '&scanTarget=' + encodeURIComponent(target);
+  }
+
+  function submitManual() {
+    var v = document.getElementById('manualToken').value.trim();
+    if (!v) { showError('Token tidak boleh kosong.'); return; }
+    goBack(v);
+  }
+
+  function startCamera(cameraIdOrConfig) {
+    scanner = new Html5Qrcode('reader');
+    document.getElementById('statusText').textContent = 'Arahkan kamera ke QR pada invoice...';
+    scanner.start(
+      cameraIdOrConfig,
+      { fps: 10, qrbox: { width: 250, height: 250 } },
+      function(decodedText) { goBack(decodedText); },
+      function() { /* scan gagal per-frame, abaikan */ }
+    ).catch(function(err) {
+      showError('Kamera tidak dapat diakses: ' + (err && err.message ? err.message : err) + '. Anda tetap bisa memasukkan token secara manual di bawah.');
+      document.getElementById('statusText').textContent = 'Kamera tidak tersedia.';
+    });
+  }
+
+  function switchCamera() {
+    if (!cameras.length) return;
+    camIndex = (camIndex + 1) % cameras.length;
+    if (scanner) {
+      scanner.stop().then(function() {
+        startCamera(cameras[camIndex].id);
+      }).catch(function() {
+        startCamera(cameras[camIndex].id);
+      });
+    }
+  }
+
+  Html5Qrcode.getCameras().then(function(devices) {
+    cameras = devices || [];
+    if (cameras.length) {
+      var backIndex = cameras.findIndex(function(c) {
+        return /back|rear|environment/i.test(c.label || '');
+      });
+      camIndex = backIndex !== -1 ? backIndex : 0;
+      startCamera(cameras[camIndex].id);
+    } else {
+      startCamera({ facingMode: 'environment' });
+    }
+  }).catch(function() {
+    startCamera({ facingMode: 'environment' });
+  });
+</script>
+
+</body>
+</html>
